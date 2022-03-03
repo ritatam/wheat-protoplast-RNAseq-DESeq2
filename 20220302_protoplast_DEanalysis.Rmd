@@ -1,0 +1,621 @@
+---
+title: "RNAseq_protoplast_DEanalysis_ver2"
+author: "Rita Tam"
+date: "28/02/2022"
+output: html_document
+---
+
+## Workspace set-up
+
+Load libraries.
+
+```{r message=FALSE, warning=FALSE, results="hide"}
+library(DESeq2)
+library(tximport)
+library(tidyverse)
+```
+
+Setting up functions of later use.
+
+```{r message=FALSE, warning=FALSE}
+create_dir <- function(dirname) {
+  if (file.exists(dirname)) {
+    cat("This directory already exists\n")
+  } else {
+    dir.create(dirname)
+  }
+}
+```
+
+Indicate working directory and input file paths.
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "D://Work//OneDrive - Australian National University//.SCHWESSINGER'S LAB WORK//RNAseq analysis (Salome)//2. Differential Expression Analysis ver2")
+samp_rep_dirs <- list.files(path="../input/kallisto_quantification/", full.names=TRUE)
+```
+
+
+# A. Gabo and GaboSr50
+
+## 1. Input
+
+### Transcript abundance files
+
+Specify paths to the abundance files tagged by a column of sample names, and read in a tx2gene table that links transcripts to genes for this dataset.
+
+```{r message=FALSE}
+# get absolute paths to all abundance files
+abundance_files <- c()
+for (path in samp_rep_dirs){
+  path <- paste(path,"/abundance.h5", sep="")
+  abundance_files <- c(abundance_files, path)
+}
+
+samp_rep_names <- list.files(path="../input/kallisto_quantification/", full.names=FALSE)
+names(abundance_files) <- samp_rep_names
+
+all(file.exists(abundance_files)) # check all files exist
+head(abundance_files)
+
+
+# read in tx2gene file
+t2g <- read_delim("../input/transcriptome/Triticum_aestivum.cdna.tx2gene.txt", delim=" ", col_names=FALSE)
+head(t2g)
+```
+
+Slice abundance file list to include only Gabo and GaboSr50.
+
+```{r}
+abundance_files_AllGabo <- abundance_files[17:36]
+```
+
+### *Tximport*
+
+Using tximport function to import quantification data.
+
+```{r message=FALSE}
+txi_AllGabo <- tximport(abundance_files_AllGabo, type="kallisto", tx2gene=t2g)
+```
+
+Construct a sample table with condition column.
+
+```{r}
+samples_AllGabo <- data.frame(condition=factor(rep(c("Gabo_AvrSr50",
+                                             "Gabo_EV",
+                                             "Gabo_Sr50_AvrSr35",
+                                             "Gabo_Sr50_AvrSr50",
+                                             "Gabo_Sr50_EV"),
+                                           each=4)))
+rownames(samples_AllGabo) <- colnames(txi_AllGabo$counts)
+samples_AllGabo
+```
+
+### Construct a *DESeqDataSet*
+
+Now with the txi object and sample table, we can construct a *DESeqDataSet*.
+
+```{r message=FALSE}
+dds_AllGabo <- DESeqDataSetFromTximport(txi_AllGabo, colData=samples_AllGabo, design=~condition)
+dds_AllGabo
+```
+
+### Pre-filtering
+
+(20220302 update: I changed pre-filtering threshold from 10 to 1, as we want to fish out genes with normalised counts in controls that are as low as possible, as opposed to Avr/R condition.)
+
+Remove genes with zero reads, to keep only rows that have at least \>1 read in total across all genes.
+
+```{r}
+dds_AllGabo <- dds_AllGabo[rowSums(counts(dds_AllGabo)) > 1, ]
+dds_AllGabo
+```
+
+## 2. Differential expression analysis
+
+The standard differential expression analysis steps are wrapped into a single function, *DESeq()*. Results tables are generated using the function *results()*, which extract log2 fold changes, p values and adjusted p values (for multiple tests).
+
+Note: User should specify comparison to indicate **last level** over the **reference level**, using the *contrast* argument of *results()* function.
+
+```{r message=FALSE}
+dds_AllGabo <- DESeq(dds_AllGabo)
+```
+
+```{r}
+dds_AllGabo
+```
+
+## 3. Result tables
+
+Applying *summary()* to a result table will return:\
+\* LFC \> 0 (up) --> upregulated genes\
+\* LFC \< 0 (down) --> downregulated genes\
+\* outliers\
+\* low counts\
+
+First specify the comparison to investigate. In the first example Gabo_Sr50_AvrSr50 will be compared against Gabo_AvrSr50 (reference).
+
+Also custom false discovery rate (FDR) cutoff to 0.05 with option *alpha*.
+
+> Note: FDR = Proportion of genes that are expected to be differentially expressed, but in reality they are not.
+>
+> The *results* function automatically performs independent filtering based on the mean of normalised counts for each gene, optimising the number of genes with adjusted p value below the FDR cutoff.
+
+------------------------------------------------------------------------
+
+Setting up *DEanalysis_results()* function that takes in: 1. dds (DESeqDataSet) 2. query condition 3. reference condition
+
+```{r}
+DEanalysis_results <- function(dds, query, ref) {
+  DEres <- results(dds, contrast=c("condition", query, ref), alpha=0.05)
+  DEres <- DEres[order(DEres$padj), ] # order rows by padj
+  DEres <- subset(DEres, padj<0.05)
+  return(DEres)
+}
+
+create_dir("./DESeq_results_table_padj05")
+DEres_csv_outpath <- "./DESeq_results_table_padj05"
+```
+
+### Avr/R vs controls
+
+#### i. Gabo_Sr50_AvrSr50 vs **Gabo_AvrSr50**
+
+```{r}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr50_vs_Gabo_AvrSr50_padj05.csv", sep="/"))
+res
+```
+
+#### ii. Gabo_Sr50_AvrSr50 vs **Gabo_EV**
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_EV")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr50_vs_Gabo_EV_padj05.csv", sep="/"))
+res
+```
+
+#### iii. Gabo_Sr50_AvrSr50 vs **Gabo_Sr50_AvrSr35**
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_Sr50_AvrSr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_AvrSr35_padj05.csv", sep="/"))
+res
+```
+
+#### iv. Gabo_Sr50_AvrSr50 vs **Gabo_Sr50_EV**
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_Sr50_EV")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_EV_padj05.csv", sep="/"))
+res
+```
+
+------------------------------------------------------------------------
+
+### GaboSr50 vs Gabo
+
+Comparing Gabo_Sr50 vs Gabo to remove background expression noise in Gabo_Sr50 genotype, as it may confound expression due to Avr/R interaction.
+
+#### i) Gabo_Sr50_EV vs Gabo_EV
+
+```{r}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_EV", "Gabo_EV")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_EV_vs_Gabo_EV_padj05.csv", sep="/"))
+res
+```
+
+#### ii) Gabo_Sr50_EV vs Gabo_AvrSr50
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_EV", "Gabo_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_EV_vs_Gabo_AvrSr50_padj05.csv", sep="/"))
+res
+```
+
+#### iii) Gabo_Sr50_AvrSr35 vs Gabo_EV
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr35", "Gabo_EV")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr35_vs_Gabo_EV_padj05.csv", sep="/"))
+res
+```
+
+#### iv) Gabo_Sr50_AvrSr35 vs Gabo_AvrSr50
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_AllGabo, "Gabo_Sr50_AvrSr35", "Gabo_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr35_vs_Gabo_AvrSr50_padj05.csv", sep="/"))
+res
+```
+
+## 4. Extract commonly upregulated genes in Gabo_Sr50_AvrSr50
+
+Rationale:
+
+1.  Filter to retain only upregulated genes from all four Gabo_Sr50_AvrSr50 comparisons (log2FoldChange > 2) *(Note: I have inspected the genes ranked in log2FoldChange order in all dataframes. Using a threshold of 2 seems ok.)*
+2.  Intersect and extract upregulated genes common to all comparisons --> Avr/R upregulated gene pool
+3.  Repeat step 1 and 2 for control vs control comparisons, and get a list of upregulated genes in Gabo_Sr50 genotype (background)
+4.  Remove background from Avr/R upregulated gene pool
+
+Setting up functions
+
+```{r}
+upreg_filter <- function(df, lfc) {
+  print(paste("Number of rows BEFORE filtering:", dim(df)[1]))
+  filt <- df %>% 
+    filter(log2FoldChange > lfc) %>% 
+    `colnames<-`(c("gene","baseMean","log2FoldChange",
+                   "lfcSE","stat","pvalue","padj")) %>% 
+    arrange(padj)
+  filt_df <- as.data.frame(filt)
+  print(paste("Number of rows AFTER filtering:", dim(filt_df)[1]))
+  return(filt_df)
+  
+}
+
+csv2df <- function(comparison) {
+  fn <- paste(DEres_csv_outpath, comparison, sep="/")
+  fn <- paste(fn, "_padj05.csv", sep="")
+  df <- read_csv(file=fn, col_types=cols())
+  return(df)
+}
+```
+
+```{r message=FALSE}
+Gabo_Sr50_AvrSr50_vs_Gabo_AvrSr50 <- upreg_filter(csv2df("Gabo_Sr50_AvrSr50_vs_Gabo_AvrSr50"), 2)
+Gabo_Sr50_AvrSr50_vs_Gabo_EV <- upreg_filter(csv2df("Gabo_Sr50_AvrSr50_vs_Gabo_EV"), 2)
+Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_AvrSr35 <- upreg_filter(csv2df("Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_AvrSr35"), 2)
+Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_EV <- upreg_filter(csv2df("Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_EV"), 2)
+```
+
+Inspect one of them to check if filter worked properly:
+
+```{r}
+head(Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_EV, 20)
+```
+
+```{r}
+df_list <- list(Gabo_Sr50_AvrSr50_vs_Gabo_AvrSr50$gene, 
+                Gabo_Sr50_AvrSr50_vs_Gabo_EV$gene, 
+                Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_AvrSr35$gene,
+                Gabo_Sr50_AvrSr50_vs_Gabo_Sr50_EV$gene)
+Gabo_AvrRUpregGenePool <- Reduce(intersect, df_list)
+length(Gabo_AvrRUpregGenePool)
+```
+
+Do the same for controls for background removal:
+
+```{r warning=FALSE}
+Gabo_Sr50_EV_vs_Gabo_EV <- upreg_filter(csv2df("Gabo_Sr50_EV_vs_Gabo_EV"), 2)
+Gabo_Sr50_EV_vs_Gabo_AvrSr50 <- upreg_filter(csv2df("Gabo_Sr50_EV_vs_Gabo_AvrSr50"), 2)
+Gabo_Sr50_AvrSr35_vs_Gabo_EV <- upreg_filter(csv2df("Gabo_Sr50_AvrSr35_vs_Gabo_EV"), 2)
+Gabo_Sr50_AvrSr35_vs_Gabo_AvrSr50 <- upreg_filter(csv2df("Gabo_Sr50_AvrSr35_vs_Gabo_AvrSr50"), 2)
+
+control_df_list <- list(Gabo_Sr50_EV_vs_Gabo_EV$gene, 
+                Gabo_Sr50_EV_vs_Gabo_AvrSr50$gene, 
+                Gabo_Sr50_AvrSr35_vs_Gabo_EV$gene,
+                Gabo_Sr50_AvrSr35_vs_Gabo_AvrSr50$gene)
+GaboSr50ControlUpregGenePool <- Reduce(intersect, control_df_list)
+length(GaboSr50ControlUpregGenePool)
+```
+
+Remove background in Gabo_Sr50_AvrSr50 upregulated gene pool:
+
+```{r}
+Gabo_AvrRUpregGenePool <- Gabo_AvrRUpregGenePool[!(Gabo_AvrRUpregGenePool %in% GaboSr50ControlUpregGenePool)]
+length(Gabo_AvrRUpregGenePool)
+```
+
+```{r}
+Gabo_AvrRUpregGenePool
+```
+
+See what it looks like:
+
+```{r fig.width=11, fig.height=5}
+plotCounts(dds_AllGabo, gene="TraesCS3D02G499700", intgroup="condition")
+```
+
+#- - - - - - - - - -
+
+# B. Fielder
+
+## 1. Input
+
+### Transcript abundance files
+
+Slice abundance file list to include only Fielder.
+
+```{r}
+abundance_files_Fielder <- abundance_files[1:16]
+```
+
+### *Tximport*
+
+Using tximport function to import quantification data.
+
+```{r message=FALSE}
+txi_Fielder <- tximport(abundance_files_Fielder, type="kallisto", tx2gene=t2g)
+```
+
+Construct a sample table with condition column.
+
+```{r}
+samples_Fielder <- data.frame(condition=factor(rep(c("Fielder_AvrSr35",
+                                             "Fielder_Sr35_AvrSr35",
+                                             "Fielder_Sr35_AvrSr50",
+                                             "Fielder_Sr35"),
+                                           each=4)))
+rownames(samples_Fielder) <- colnames(txi_Fielder$counts)
+samples_Fielder
+```
+
+### Construct a *DESeqDataSet*
+
+Now with the txi object and sample table, we can construct a *DESeqDataSet*.
+
+```{r message=FALSE}
+dds_Fielder <- DESeqDataSetFromTximport(txi_Fielder, colData=samples_Fielder, design=~condition)
+dds_Fielder
+```
+
+### Pre-filtering
+
+Remove genes with zero reads, to keep only rows that have at least \>10 read in total across all genes.
+
+```{r}
+dds_Fielder <- dds_Fielder[rowSums(counts(dds_Fielder)) > 1, ]
+dds_Fielder
+```
+
+## 2. Differential expression analysis
+
+The standard differential expression analysis steps are wrapped into a single function, *DESeq()*. Results tables are generated using the function *results()*, which extract log2 fold changes, p values and adjusted p values (for multiple tests).
+
+```{r message=FALSE}
+dds_Fielder <- DESeq(dds_Fielder)
+```
+
+```{r}
+dds_Fielder
+```
+
+## 3. Result tables
+
+Applying *summary()* to a result table will return:\
+\* LFC \> 0 (up) --> upregulated genes\
+\* LFC \< 0 (down) --> downregulated genes\
+\* outliers\
+\* low counts\
+
+First specify the comparison to investigate. Also custom false discovery rate (FDR) cutoff to 0.05 with option *alpha*.
+
+Since only one genotype is involved, Avr/R can be directly compared to all other controls.
+
+------------------------------------------------------------------------
+
+### Avr/R vs controls
+
+#### i. Fielder_Sr35_AvrSr35 vs **Fielder_AvrSr35**
+
+```{r}
+res <- DEanalysis_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_AvrSr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_Sr35_AvrSr35_vs_Fielder_AvrSr35_padj05.csv", sep="/"))
+res
+```
+
+#### ii. Fielder_Sr35_AvrSr35 vs **Fielder_Sr35_AvrSr50**
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_Sr35_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_Sr35_AvrSr35_vs_Fielder_Sr35_AvrSr50_padj05.csv", sep="/"))
+res
+```
+
+#### iii. Fielder_Sr35_AvrSr35 vs **Fielder_Sr35**
+
+```{r echo=FALSE}
+res <- DEanalysis_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_Sr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_Sr35_AvrSr35_vs_Fielder_Sr35_padj05.csv", sep="/"))
+res
+```
+
+## 4. Extract commonly upregulated genes in Fielder_Sr35_AvrSr35
+
+1.  Filter to retain only upregulated genes from all three Fielder_Sr35_AvrSr35 comparisons (log2FoldChange > 2)
+2.  Intersect and extract upregulated genes common to all comparisons --> Fielder vr/R upregulated gene pool
+3.  Intersect Fielder_Sr35_AvrSr35 and Gabo_Sr50_AvrSr50 upregulated gene pools --> AvrRUpGenePool (i.e. polished)
+4.  Subset DESeqDataSet with the gene ids in polished gene pool, inspect gene statistics
+5.  Pick genes that gave low counts (\<20-50) in controls but exceptionally high in Avr/R sets
+6.  Make a loop to print all the gene count plots and screen manually.
+
+```{r warning=FALSE}
+Fielder_Sr35_AvrSr35_vs_Fielder_AvrSr35 <- upreg_filter(csv2df("Fielder_Sr35_AvrSr35_vs_Fielder_AvrSr35"), 2)
+Fielder_Sr35_AvrSr35_vs_Fielder_Sr35_AvrSr50 <- upreg_filter(csv2df("Fielder_Sr35_AvrSr35_vs_Fielder_Sr35_AvrSr50"), 2)
+Fielder_Sr35_AvrSr35_vs_Fielder_Sr35 <- upreg_filter(csv2df("Fielder_Sr35_AvrSr35_vs_Fielder_Sr35"), 2)
+```
+
+Inspect one of them to check if filter worked properly:
+
+```{r}
+arrange(Fielder_Sr35_AvrSr35_vs_Fielder_Sr35, desc(log2FoldChange))
+```
+
+Intersect and extract upregulated genes common to all three comparisons.
+
+```{r}
+df_list <- list(Fielder_Sr35_AvrSr35_vs_Fielder_AvrSr35$gene, 
+                Gabo_Sr50_AvrSr50_vs_Gabo_EV$gene, 
+                Fielder_Sr35_AvrSr35_vs_Fielder_Sr35$gene)
+Fielder_AvrRUpregGenePool <- Reduce(intersect, df_list)
+length(Fielder_AvrRUpregGenePool)
+```
+
+## 5. AvrRUpGenePool
+
+Intersect Gabo and Fielder gene pools to find commonly upregulated genes shared between them.
+
+```{r}
+df_list <- list(Gabo_AvrRUpregGenePool, Fielder_AvrRUpregGenePool)
+AvrRUpGenePool <- Reduce(intersect, df_list)
+AvrRUpGenePool
+```
+
+## 6. Retain upreg genes with low counts in controls (Optional)
+
+### Slice DESeqDataSets
+
+Slicing DESeqDataSet to keep only the upregulated genes, and run DESeq again.
+
+```{r}
+genesToKeep <- which(rownames(dds_AllGabo) %in% AvrRUpGenePool)
+subset_dds_AllGabo <- dds_AllGabo[genesToKeep, ]
+subset_dds_AllGabo
+```
+
+```{r}
+genesToKeep <- which(rownames(dds_Fielder) %in% AvrRUpGenePool)
+subset_dds_Fielder <- dds_Fielder[genesToKeep, ]
+subset_dds_Fielder
+```
+
+```{r message=FALSE, warning=FALSE}
+subset_dds_AllGabo <- DESeq(subset_dds_AllGabo)
+subset_dds_Fielder <- DESeq(subset_dds_Fielder)
+```
+
+### Extract genes with low mean count in controls
+
+```{r}
+filter_LowCount <- function(df, count) {
+  df <- as.data.frame(df)
+  df <- df %>% 
+    filter(baseMean < count) %>%
+    arrange(log2FoldChange)
+  return(df)
+}
+```
+
+#### i. Gabo
+
+Extracting genes with low mean count in conditions compared to Gabo_Sr50_AvrSr50.
+
+```{r}
+create_dir("./AvrRUpGenes_DESeq_results_table_padj05")
+DEres_csv_outpath <- "./AvrRUpGenes_DESeq_results_table_padj05"
+
+res <- DEanalysis_results(subset_dds_AllGabo, "Gabo_AvrSr50", "Gabo_Sr50_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_AvrSr50_vs_Gabo_Sr50_AvrSr50_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Gabo_1 <- filter_LowCount(res, 50)
+LowExpGenes_Gabo_1
+```
+
+```{r echo=FALSE}
+res <- DEanalysis_results(subset_dds_AllGabo, "Gabo_EV", "Gabo_Sr50_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_EV_vs_Gabo_Sr50_AvrSr50_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Gabo_2 <- filter_LowCount(res, 50)
+LowExpGenes_Gabo_2
+```
+
+```{r echo=FALSE}
+res <- DEanalysis_results(subset_dds_AllGabo, "Gabo_Sr50_AvrSr35", "Gabo_Sr50_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_AvrSr35_vs_Gabo_Sr50_AvrSr50_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Gabo_3 <- filter_LowCount(res, 50)
+LowExpGenes_Gabo_3
+```
+
+```{r echo=FALSE}
+res <- DEanalysis_results(subset_dds_AllGabo, "Gabo_Sr50_EV", "Gabo_Sr50_AvrSr50")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Gabo_Sr50_EV_vs_Gabo_Sr50_AvrSr50_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Gabo_4 <- filter_LowCount(res, 50)
+LowExpGenes_Gabo_4
+```
+
+```{r}
+df_list <- list(rownames(LowExpGenes_Gabo_1),
+                rownames(LowExpGenes_Gabo_2),
+                rownames(LowExpGenes_Gabo_3),
+                rownames(LowExpGenes_Gabo_4))
+LowExpGenes_Gabo <- Reduce(intersect, df_list)
+LowExpGenes_Gabo
+```
+
+#### ii. Fielder
+
+```{r}
+res <- DEanalysis_results(subset_dds_Fielder, "Fielder_AvrSr35", "Fielder_Sr35_AvrSr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_AvrSr35_vs_Fielder_Sr35_AvrSr35_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Fielder_1 <- filter_LowCount(res, 50)
+LowExpGenes_Fielder_1
+```
+
+```{r echo=FALSE}
+res <- DEanalysis_results(subset_dds_Fielder, "Fielder_Sr35_AvrSr50", "Fielder_Sr35_AvrSr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_Sr35_AvrSr50_vs_Fielder_Sr35_AvrSr35_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Fielder_2 <- filter_LowCount(res, 50)
+LowExpGenes_Fielder_2
+```
+
+```{r echo=FALSE}
+res <- DEanalysis_results(subset_dds_Fielder, "Fielder_Sr35", "Fielder_Sr35_AvrSr35")
+write.csv(as.data.frame(res), file=paste(DEres_csv_outpath, "Fielder_Sr35_vs_Fielder_Sr35_AvrSr35_upreg_subset_padj05.csv", sep="/"))
+
+LowExpGenes_Fielder_3 <- filter_LowCount(res, 50)
+LowExpGenes_Fielder_3
+```
+
+```{r}
+df_list <- list(rownames(LowExpGenes_Fielder_1),
+                rownames(LowExpGenes_Fielder_2),
+                rownames(LowExpGenes_Fielder_3))
+LowExpGenes_Fielder <- Reduce(intersect, df_list)
+LowExpGenes_Fielder
+```
+
+Now retain those genes (with low count in controls) in AvrRUpGenePool.
+
+```{r}
+AvrRUpGenePool2 <- AvrRUpGenePool[AvrRUpGenePool %in% LowExpGenes_Fielder]
+AvrRUpGenePool2 <- AvrRUpGenePool[AvrRUpGenePool %in% LowExpGenes_Gabo]
+AvrRUpGenePool2
+```
+
+Lastly, export Gabo and Fielder normalised transcript count plots.
+
+```{r fig.width=11, fig.height=5, eval=FALSE}
+create_dir("./AvrRUpGenePool_Plots")
+create_dir("./AvrRUpGenePool_LowCountControls_Plots")
+
+counter <- 1
+for (gene in AvrRUpGenePool) {
+  png(file = paste("./AvrRUpGenePool_Plots/", counter, "_", gene, "_Gabo.png", sep=""), 
+       height=400, width=1000)
+  plotCounts(dds_AllGabo, gene=gene, intgroup="condition")
+  dev.off()
+  png(file = paste("./AvrRUpGenePool_Plots/", counter, "_", gene, "_Fielder.png", sep=""), 
+       height=400, width=1000)
+  plotCounts(dds_Fielder, gene=gene, intgroup="condition")
+  dev.off()
+  counter <- counter + 1
+}
+
+counter <- 1
+for (gene in AvrRUpGenePool2) {
+  png(file = paste("./AvrRUpGenePool_LowCountControls_Plots/", counter, "_", gene, "_Gabo.png", sep=""), 
+       height=400, width=1000)
+  plotCounts(dds_AllGabo, gene=gene, intgroup="condition")
+  dev.off()
+  png(file = paste("./AvrRUpGenePool_LowCountControls_Plots/", counter, "_", gene, "_Fielder.png", sep=""), 
+       height=400, width=1000)
+  plotCounts(dds_Fielder, gene=gene, intgroup="condition")
+  dev.off()
+  counter <- counter + 1
+}
+```
