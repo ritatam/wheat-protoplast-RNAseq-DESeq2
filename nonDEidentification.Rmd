@@ -1,0 +1,346 @@
+---
+title: "Finding non-differentially expressed genes"
+author: "Rita Tam"
+date: "04/03/2022"
+output: html_document
+---
+
+## Workspace set-up
+
+```{r message=FALSE, warning=FALSE, results="hide"}
+library(DESeq2)
+library(tximport)
+library(tidyverse)
+library(tibble)
+```
+
+```{r}
+#setwd("D://Work//OneDrive - Australian National University//.SCHWESSINGER'S LAB WORK//RNAseq analysis (Salome)//3. Finding non-differentially expressed genes")
+
+setwd("C://Users//u6149379//OneDrive - Australian National University//.SCHWESSINGER'S LAB WORK//RNAseq analysis (Salome)//3. Finding non-differentially expressed genes")
+samp_rep_dirs <- list.files(path="../input/kallisto_quantification", full.names = TRUE)
+```
+
+# A. Gabo and GaboSr50
+
+## Input 
+
+```{r message=FALSE}
+# get absolute paths to all abundance files
+abundance_files <- c()
+for (path in samp_rep_dirs){
+  path <- paste(path,"/abundance.h5", sep="")
+  abundance_files <- c(abundance_files, path)
+}
+
+samp_rep_names <- list.files(path="../input/kallisto_quantification/", full.names=FALSE)
+names(abundance_files) <- samp_rep_names
+
+all(file.exists(abundance_files)) # check all files exist
+
+# slice abundance file list to include only Gabo and GaboSr50
+abundance_files_AllGabo <- abundance_files[17:36]
+
+# read in tx2gene file
+t2g <- read_delim("../input/transcriptome/Triticum_aestivum.cdna.tx2gene.txt", delim=" ", col_names=FALSE)
+
+# tximport
+txi_AllGabo <- tximport(abundance_files_AllGabo, type="kallisto", tx2gene=t2g)
+
+# sample table to link samples to conditions
+samples_AllGabo <- data.frame(condition=factor(rep(c("Gabo_AvrSr50",
+                                             "Gabo_EV",
+                                             "Gabo_Sr50_AvrSr35",
+                                             "Gabo_Sr50_AvrSr50",
+                                             "Gabo_Sr50_EV"),
+                                           each=4)))
+rownames(samples_AllGabo) <- colnames(txi_AllGabo$counts)
+
+# construct DESeqDataSet
+dds_AllGabo <- DESeqDataSetFromTximport(txi_AllGabo, colData=samples_AllGabo, design=~condition)
+dds_AllGabo <- dds_AllGabo[rowSums(counts(dds_AllGabo)) > 1, ]   # Pre-filtering
+dds_AllGabo    # output should have dim of 75899x20
+```
+
+## Differential expression analysis
+
+```{r}
+dds_AllGabo <- DESeq(dds_AllGabo)
+```
+
+## Result tables
+
+Since we are interested in non-differentially expressed genes, this "unconventional" alternative hypothesis needs to be specified. The Wald test of significance provides p-values for the null hypothesis, which is the complement of the set defined by the alternative.
+Here, the alternative hypothesis is |lfc| < lfcThreshold. In other words the test will look for genes with |log2FoldChange| < 0.5.
+Note that the test is not performed on the full null region, but substitutes with a test at the boundary; and returns the maximum p-value of upper and lower one-sided tests.
+
+```{r}
+nonDE_results <- function(dds, query, ref) {
+  res <- results(dds, contrast=c("condition", query, ref), lfcThreshold=.5, altHypothesis="lessAbs")
+  res <- res[order(desc(res$baseMean)), ]
+  res <- subset(res, padj<0.05)
+  return(res)
+}
+```
+
+
+```{r}
+res1 <- nonDE_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_AvrSr50")
+res2 <- nonDE_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_EV")
+res3 <- nonDE_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_Sr50_AvrSr35")
+res4 <- nonDE_results(dds_AllGabo, "Gabo_Sr50_AvrSr50", "Gabo_Sr50_EV")
+res5 <- nonDE_results(dds_AllGabo, "Gabo_AvrSr50", "Gabo_EV")
+res6 <- nonDE_results(dds_AllGabo, "Gabo_AvrSr50", "Gabo_Sr50_AvrSr35")
+res7 <- nonDE_results(dds_AllGabo, "Gabo_AvrSr50", "Gabo_Sr50_EV")
+res8 <- nonDE_results(dds_AllGabo, "Gabo_EV", "Gabo_Sr50_AvrSr35")
+res9 <- nonDE_results(dds_AllGabo, "Gabo_EV", "Gabo_Sr50_EV")
+res10 <- nonDE_results(dds_AllGabo, "Gabo_Sr50_AvrSr35", "Gabo_Sr50_EV")
+```
+
+
+Intersect gene pools from all comparisons, as non-DE genes should be universally expressed regardless of conditions.
+
+```{r}
+res_list <- list(rownames(res1), rownames(res2), rownames(res3), rownames(res4), rownames(res5),
+                 rownames(res6), rownames(res7), rownames(res8), rownames(res9), rownames(res10))
+Gabo_nonDEGenePool <- Reduce(intersect, res_list)
+length(Gabo_nonDEGenePool)
+```
+
+Subset dds normalised read count data using the gene pool. Here normalisation performed by DESeq2 accounts for sequencing depth and library size factors.
+
+```{r}
+dds_AllGabo_nonDE_normCounts <- counts(dds_AllGabo[rownames(dds_AllGabo) %in% Gabo_nonDEGenePool, ], normalized=TRUE )
+head(dds_AllGabo_nonDE_normCounts)
+```
+## Non-DE genes ranked for each condition
+
+Take the mean of normalised read counts for each condition.
+
+First split dataframe based on conditions, then calculate mean normalised read counts, and rank genes from highest to lowest. 
+The following function does this job.
+
+```{r}
+# setting up function
+rank_gene_by_meanNormCount <- function(df) {
+  df <- as.data.frame(rowMeans(df))
+  df <- tibble::rownames_to_column(df, "gene")
+  colnames(df)[2] <- "meanNormCount"
+  df <- df %>% arrange(desc(meanNormCount))
+  return(df)
+}
+```
+
+```{r}
+Gabo_AvrSr50 <- rank_gene_by_meanNormCount(dds_AllGabo_nonDE_normCounts[, 1:4])
+#write.csv(Gabo_AvrSr50, file=paste("./nonDE_gene_rank_by_condition/Gabo_AvrSr50_padj05_nonDEgenes.csv"))
+
+Gabo_EV <- rank_gene_by_meanNormCount(dds_AllGabo_nonDE_normCounts[, 5:8])
+#write.csv(Gabo_EV, file=paste("./nonDE_gene_rank_by_condition/Gabo_EV_padj05_nonDEgenes.csv"))
+
+Gabo_Sr50_AvrSr35 <- rank_gene_by_meanNormCount(dds_AllGabo_nonDE_normCounts[, 9:12])
+#write.csv(Gabo_Sr50_AvrSr35, file=paste("./nonDE_gene_rank_by_condition/Gabo_Sr50_AvrSr35_padj05_nonDEgenes.csv"))
+
+Gabo_Sr50_AvrSr50 <- rank_gene_by_meanNormCount(dds_AllGabo_nonDE_normCounts[, 13:16])
+#write.csv(Gabo_Sr50_AvrSr50, file=paste("./nonDE_gene_rank_by_condition/Gabo_Sr50_AvrSr50_padj05_nonDEgenes.csv"))
+
+Gabo_Sr50_EV <- rank_gene_by_meanNormCount(dds_AllGabo_nonDE_normCounts[, 17:20])
+#write.csv(Gabo_Sr50_EV, file=paste("./nonDE_gene_rank_by_condition/Gabo_Sr50_EV_padj05_nonDEgenes.csv"))
+```
+
+## Non-DE genes ranked across all conditions
+
+1. join the mean normalised count columns of all conditions back together by gene name.
+2. create a new column that takes sum of the counts across all conditions (meanNormCount_sum)
+3. rank genes by meanNormCount, from highest to lowest
+```{r}
+df_list <- list(Gabo_AvrSr50,
+                Gabo_EV,
+                Gabo_Sr50_AvrSr35,
+                Gabo_Sr50_AvrSr50,
+                Gabo_Sr50_EV)
+
+meanNormCount_sum_Gabo <- df_list %>%
+  reduce(full_join, by="gene") %>% 
+  'colnames<-'(c("gene", "Gabo_AvrSr50", 
+                 "Gabo_EV", "Gabo_Sr50_AvrSr35", 
+                 "Gabo_Sr50_AvrSr50", "Gabo_Sr50_EV")) %>% 
+  rowwise() %>% 
+  mutate(meanNormCount_sum = sum(c(Gabo_AvrSr50,Gabo_EV,Gabo_Sr50_AvrSr35,Gabo_Sr50_AvrSr50,Gabo_Sr50_EV))) %>% 
+  arrange(desc(meanNormCount_sum))
+
+meanNormCount_sum_Gabo
+# write.csv(meanNormCount_sum_Gabo, file=paste("./meanNormCount_sum/meanNormCount_sum_Gabo.csv"))
+```
+
+
+
+# B. Fielder
+
+## Input
+
+```{r message=FALSE}
+# get absolute paths to all abundance files
+
+# slice abundance file list to include only Fielder
+abundance_files_Fielder <- abundance_files[1:16]
+
+# tximport
+txi_Fielder <- tximport(abundance_files_Fielder, type="kallisto", tx2gene=t2g)
+
+# sample table to link samples to conditions
+samples_Fielder <- data.frame(condition=factor(rep(c("Fielder_AvrSr35",
+                                             "Fielder_Sr35_AvrSr35",
+                                             "Fielder_Sr35_AvrSr50",
+                                             "Fielder_Sr35"),
+                                           each=4)))
+rownames(samples_Fielder) <- colnames(txi_Fielder$counts)
+
+# construct DESeqDataSet
+dds_Fielder <- DESeqDataSetFromTximport(txi_Fielder, colData=samples_Fielder, design=~condition)
+dds_Fielder <- dds_Fielder[rowSums(counts(dds_Fielder)) > 1, ]   # Pre-filtering
+dds_Fielder    # output should have dim of 75899x20
+```
+## Differential expression analysis
+```{r}
+dds_Fielder <- DESeq(dds_Fielder)
+```
+
+
+## Result tables
+
+Look for genes with |log2FoldChange| < 0.5 in each pairwise comparison of conditions.
+```{r}
+res1 <- nonDE_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_Sr35")
+res2 <- nonDE_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_Sr35_AvrSr50")
+res3 <- nonDE_results(dds_Fielder, "Fielder_Sr35_AvrSr35", "Fielder_AvrSr35")
+res4 <- nonDE_results(dds_Fielder, "Fielder_Sr35", "Fielder_Sr35_AvrSr50")
+res5 <- nonDE_results(dds_Fielder, "Fielder_Sr35", "Fielder_AvrSr35")
+res6 <- nonDE_results(dds_Fielder, "Fielder_Sr35_AvrSr50", "Fielder_AvrSr35")
+```
+
+Intersect the non-DE genes that passed the significance test.
+```{r}
+res_list <- list(rownames(res1), rownames(res2), rownames(res3), rownames(res4), rownames(res5),
+                 rownames(res6))
+Fielder_nonDEGenePool <- Reduce(intersect, res_list)
+length(Fielder_nonDEGenePool)
+```
+Subset dds normalised read count data using the names from Fielder gene pool.
+```{r}
+dds_Fielder_nonDE_normCounts <- counts(dds_Fielder[rownames(dds_Fielder) %in% Fielder_nonDEGenePool, ], normalized=TRUE )
+head(dds_Fielder_nonDE_normCounts)
+```
+## Non-DE genes ranked for each condition
+
+Take the mean of normalised read counts for each condition.
+First split dataframe based on conditions, then calculate mean normalised read counts, and rank genes from highest to lowest. 
+```{r}
+Fielder_AvrSr35 <- rank_gene_by_meanNormCount(dds_Fielder_nonDE_normCounts[, 1:4])
+#write.csv(Fielder_AvrSr35, file=paste("./nonDE_gene_rank_by_condition/Fielder_AvrSr35_padj05_nonDEgenes.csv"))
+
+Fielder_Sr35_AvrSr35 <- rank_gene_by_meanNormCount(dds_Fielder_nonDE_normCounts[, 5:8])
+#write.csv(Fielder_Sr35_AvrSr35, file=paste("./nonDE_gene_rank_by_condition/Fielder_Sr35_AvrSr35_padj05_nonDEgenes.csv"))
+
+Fielder_Sr35_AvrSr50 <- rank_gene_by_meanNormCount(dds_Fielder_nonDE_normCounts[, 9:12])
+#write.csv(Fielder_Sr35_AvrSr50, file=paste("./nonDE_gene_rank_by_condition/Fielder_Sr35_AvrSr50_padj05_nonDEgenes.csv"))
+
+Fielder_Sr35 <- rank_gene_by_meanNormCount(dds_Fielder_nonDE_normCounts[, 13:16])
+#write.csv(Fielder_Sr35, file=paste("./nonDE_gene_rank_by_condition/Fielder_Sr35_padj05_nonDEgenes.csv"))
+```
+
+## Non-DE genes ranked across all conditions
+
+1. join the mean normalised count columns of all conditions back together by gene name.
+2. create a new column that takes sum of the counts across all conditions (meanNormCount_sum)
+3. rank genes by meanNormCount, from highest to lowest
+```{r}
+df_list <- list(Fielder_AvrSr35,
+                Fielder_Sr35_AvrSr35,
+                Fielder_Sr35_AvrSr50,
+                Fielder_Sr35)
+
+meanNormCount_sum_Fielder <- df_list %>%
+  reduce(full_join, by="gene") %>% 
+  'colnames<-'(c("gene", "Fielder_AvrSr35","Fielder_Sr35_AvrSr35","Fielder_Sr35_AvrSr50","Fielder_Sr35")) %>% 
+  rowwise() %>% 
+  mutate(meanNormCount_sum = sum(c(Fielder_AvrSr35,Fielder_Sr35_AvrSr35,Fielder_Sr35_AvrSr50,Fielder_Sr35))) %>% 
+  arrange(desc(meanNormCount_sum))
+
+meanNormCount_sum_Fielder
+#write.csv(meanNormCount_sum_Fielder, file=paste("./meanNormCount_sum/meanNormCount_sum_Fielder.csv"))
+```
+
+# C. Ranking common non-DE genes
+
+Intersect the non-DE gene pools of Gabo and Fielder, to get a list of gene names that were expressed in both genotypes.
+```{r}
+nonDEGenePool <- Reduce(intersect, list(Gabo_nonDEGenePool, Fielder_nonDEGenePool))
+
+head(nonDEGenePool)
+length(nonDEGenePool)
+```
+Subset Gabo/Fielder dataframe using the intersected gene list. Create a column for each to rank the common genes independently.
+In a new dataframe, join gene rank columns of Gabo and Fielder together, and take sum across both genotypes, then sort.
+The ranked genes were categorised into 4 quartile groups (thus 25% of data each), numbered by the corresponding group.
+
+```{r}
+generate_rank_df <- function(df, genotype) {
+  genesToKeep <- which(df$gene %in% nonDEGenePool)
+  subset <- df[genesToKeep, ]
+  new_df <- data.frame(subset$gene, subset$meanNormCount_sum)
+  new_df <- new_df %>% 
+    mutate(rank=1:nrow(subset)) %>% 
+    'colnames<-'(c("gene", paste(genotype, "_meanNormCount_sum", sep=""), paste(genotype, "_rank", sep="")))
+  return(new_df)
+}
+
+Gabo_rank <- generate_rank_df(meanNormCount_sum_Gabo, "Gabo")
+Fielder_rank <- generate_rank_df(meanNormCount_sum_Fielder, "Fielder")
+
+nonDEGenes_rank <- left_join(Gabo_rank, Fielder_rank, by="gene")
+nonDEGenes_rank <- nonDEGenes_rank %>% 
+  rowwise() %>% 
+  mutate(rank_sum=sum(Gabo_rank, Fielder_rank)) %>% 
+  arrange(rank_sum)
+
+nonDEGenes_rank$quartile <- ntile(nonDEGenes_rank$rank_sum, 4)
+
+nonDEGenes_rank
+```
+
+
+```{r}
+min_Q1<- nonDEGenes_rank[nonDEGenes_rank$quartile == 1, ]
+#write.csv(min_Q1, file=paste("./final_nonDE_gene_rank/high.csv"))
+Q1_M <- nonDEGenes_rank[nonDEGenes_rank$quartile == 2, ]
+#write.csv(Q1_M, file=paste("./final_nonDE_gene_rank/midhigh.csv"))
+M_Q3 <- nonDEGenes_rank[nonDEGenes_rank$quartile == 3, ]
+#write.csv(M_Q3, file=paste("./final_nonDE_gene_rank/midlow.csv"))
+Q3_max <- nonDEGenes_rank[nonDEGenes_rank$quartile == 4, ]
+#write.csv(Q3_max, file=paste("./final_nonDE_gene_rank/low.csv"))
+```
+
+
+**In the order of rank_sum:**
+
+1. Minimum to 1st quartile (top 25%) - most highly expressed genes
+```{r}
+head(min_Q1)
+```
+
+2. 1st quartile to median - mid high
+```{r}
+head(Q1_M)
+```
+
+3. median to 3rd quartile - mid low
+```{r}
+tail(M_Q3)
+```
+
+4. 3rd quartile to max - most lowly expressed genes
+```{r}
+tail(Q3_max)
+```
+
