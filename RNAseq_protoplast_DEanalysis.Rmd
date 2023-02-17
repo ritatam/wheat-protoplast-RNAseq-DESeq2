@@ -446,7 +446,7 @@ Intersect and extract upregulated genes common to all three comparisons.
 
 ```{r}
 df_list <- list(Fielder_Sr35_AvrSr35_vs_Fielder_AvrSr35$gene, 
-                Gabo_Sr50_AvrSr50_vs_Gabo_EV$gene, 
+                Fielder_Sr35_AvrSr35_vs_Fielder_Sr35_AvrSr50$gene, 
                 Fielder_Sr35_AvrSr35_vs_Fielder_Sr35$gene)
 Fielder_AvrRUpregGenePool <- Reduce(intersect, df_list)
 length(Fielder_AvrRUpregGenePool)
