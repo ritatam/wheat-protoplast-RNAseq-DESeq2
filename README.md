@@ -7,5 +7,5 @@ R Markdown scripts for differential gene expression analysis on Triticum aestivu
 
 **nonDEidentification.Rmd**: Identification of non-differentially expressed genes
 
-#### [DESeq2](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) citation
+## [DESeq2](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html) citation
 Love MI, Huber W, Anders S (2014). “Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2.” Genome Biology, 15, 550. doi: 10.1186/s13059-014-0550-8.
