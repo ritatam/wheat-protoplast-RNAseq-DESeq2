@@ -8,6 +8,9 @@ output:
   pdf_document: default
 ---
 
+### DESeq2 citation
+Love MI, Huber W, Anders S (2014). “Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2.” Genome Biology, 15, 550. doi: 10.1186/s13059-014-0550-8.
+
 # Quality control of replicates using PCA
 
 Using Kallisto abundance and count data, a principal component analysis (PCA) was carried out on 36 wheat protoplast samples (9 conditions; 4 replicates per condition) to check the similarity among replicates. The information is translated into a 2D plot, so more similar samples (ideally) will cluster together. Samples that seem "off" might indicate potential issues with the sequencing data or contamination.
