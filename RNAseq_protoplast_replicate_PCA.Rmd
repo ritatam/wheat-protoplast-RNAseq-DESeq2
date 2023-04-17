@@ -35,9 +35,7 @@ On lab computer:\
 2. Ensembl cDNA data + plasmid CDS regions provided by Salome (*Avr*s + *Sr*s)\
 The first one allows us to focus on the *effects* of Avr/R interaction. In other words, by excluding Avr and Sr genes (which have expression purposefully induced) from the transcriptome, the expression of other genes will be easier to visualise (e.g. defence gene up/downregulation).
 
-### Setting up workspace:
-
-Loading libraries:
+### Setting up workspace
 
 ```{r results="hide", message=FALSE, warning=FALSE}
 library(DESeq2)
@@ -46,8 +44,6 @@ library(tidyverse)
 library(ggplot2)
 library(readr)
 ```
-
-Setting up functions for later use.
 
 ```{r}
 create_dir <- function(dirname) {
@@ -64,7 +60,6 @@ run_DESeq2 <- function(txi_kallisto_df, sampTable) {
   dds <- DESeq(dds)
   return(dds)
 }
-
 
 plot_PCA <- function(pca_data, title) {
   p <- ggplot(pca_data, aes(x=PC1, y=PC2)) +
@@ -84,11 +79,14 @@ plot_PCA <- function(pca_data, title) {
 ```
 
 ```{r}
-basedir <- "D:/Work/OneDrive - Australian National University/.SCHWESSINGER'S LAB WORK/RNAseq analysis (Salome)"
+basedir <- "PCA"
 setwd(basedir)
 create_dir("./output")
 samp_rep_dirs <- list.files(path="./input/kallisto_quantification/", full.names=TRUE)
 ```
+
+
+
 
 # I. Wheat transcriptome (cDNA) + Avr and Sr genes
 
@@ -111,8 +109,7 @@ head(abundance_files)
 ### 2. Read in txt2gene file
 
 ```{r}
-t2g <- read_delim("./input/transcriptome/Triticum_aestivum.cdna.plasmid_cds.tx2gene.txt", col_names=FALSE)
-tail(t2g)  # check if plasmid cds (Avr + Sr) are there
+t2g <- read_delim("input/transcriptome/Triticum_aestivum.cdna.plasmid_cds.tx2gene.txt", col_names=FALSE)
 ```
 
 ### 3. Tximport
@@ -170,9 +167,12 @@ percentVar <- round(100 * attr(pca_cdna_plasmid, "percentVar"))
 plot_PCA(pca_cdna_plasmid, "PCA of all wheat genotypes cDNA and plasmid CDS (Avrs + Srs) data as transcriptome")
 ```
 
+
+
+
 # II. Wheat transcriptome (cDNA only)
 
-## A. All wheat genotypes
+## All wheat genotypes
 
 ### 3. Tximport
 
@@ -209,176 +209,4 @@ percentVar <- round(100 * attr(pca_cdna, "percentVar"))
 plot_PCA(pca_cdna, "PCA of all wheat genotypes cDNA data as transcriptome")
 ```
 
-## B. Fielder
-
-```{r}
-abundance_files_fielder <- abundance_files[1:16]
-all(file.exists(abundance_files_fielder))
-```
-
-### 3. Tximport
-
-```{r echo=TRUE}
-txi.kallisto_cdna_fielder <- tximport(abundance_files_fielder, type="kallisto", tx2gene=t2g_cdna)
-create_dir("./output/cdna/Fielder")
-Fielder_sampleTable <- data.frame(condition = factor(rep(c("Fielder_AvrSr35",
-                                                   "Fielder_Sr35_AvrSr35",
-                                                   "Fielder_Sr35_AvrSr50",
-                                                   "Fielder_Sr35"), each=4)))
-
-rownames(Fielder_sampleTable) <- colnames(txi.kallisto_cdna_fielder$counts)
-Fielder_sampleTable
-```
-
-### 4. DESeq2
-
-```{r message=FALSE}
-dds_cdna_fielder <- run_DESeq2(txi.kallisto_cdna_fielder, Fielder_sampleTable)
-```
-
-### 5. PCA
-
-```{r echo=TRUE, fig.width=10, fig.height=12}
-vsd_cdna_fielder <- vst(dds_cdna_fielder, blind=FALSE)  #Variance Stabilizing Transformations
-head(assay(vsd_cdna_fielder), 10)[, c(1,2,3)] 
-
-write.table(assay(vsd_cdna_fielder), file="./output/cdna/fielder/DESeq2_cdna_vst.txt", sep="\t")
-
-pca_cdna_fielder <- DESeq2::plotPCA(vsd_cdna_fielder, returnData=TRUE)
-percentVar <- round(100 * attr(pca_cdna_fielder, "percentVar"))
-
-Fielder_PCA <- plot_PCA(pca_cdna_fielder, "PCA of Fielder genotypes cDNA data as transcriptome")
-
-Fielder_PCA
-```
-
-Cook's distance boxplot to investigate potential outlier
-
-```{r, fig.width=10, fig.height=8}
-Fielder_PCA_outlier_rm <- Fielder_PCA + 
-  geom_label(aes(label=name), position=position_nudge(y=1), size=2.5)
-
-par(mar=c(15,4,2,2))
-boxplot(log10(assays(dds_cdna_fielder)[["cooks"]]), range=0, las=2, ylab = "Cook's distance")
-```
-
-## C. Gabo and GaboSr50
-
-```{r}
-abundance_files_all_gabo <- abundance_files[17:36]
-all(file.exists(abundance_files_all_gabo))
-```
-
-### 3. Tximport
-
-```{r echo=TRUE}
-txi.kallisto_cdna_all_gabo <- tximport(abundance_files_all_gabo, type="kallisto", tx2gene=t2g_cdna)
-create_dir("./output/cdna/all_Gabo")
-all_gabo_sampleTable <- data.frame(condition = factor(rep(c("Gabo_AvrSr50",
-                                                   "Gabo_EV",
-                                                   "Gabo_Sr50_AvrSr35",
-                                                   "Gabo_Sr50_AvrSr50",
-                                                   "Gabo_Sr50_EV"), each=4)))
-
-rownames(all_gabo_sampleTable) <- colnames(txi.kallisto_cdna_all_gabo$counts)
-all_gabo_sampleTable
-```
-
-### 4. DESeq2
-
-```{r message=FALSE}
-dds_cdna_all_gabo <- run_DESeq2(txi.kallisto_cdna_all_gabo, all_gabo_sampleTable)
-```
-
-### 5. PCA
-
-```{r echo=TRUE, fig.width=15, fig.height=10}
-vsd_cdna_all_gabo <- vst(dds_cdna_all_gabo, blind=FALSE)  #Variance Stabilizing Transformations
-head(assay(vsd_cdna_all_gabo), 10)[, c(1,2,3)] 
-
-write.table(assay(vsd_cdna_all_gabo), file="./output/cdna/all_Gabo/DESeq2_cdna_vst.txt", sep="\t")
-
-pca_cdna_all_gabo <- DESeq2::plotPCA(vsd_cdna_all_gabo, returnData=TRUE)
-percentVar <- round(100 * attr(pca_cdna_all_gabo, "percentVar"))
-
-plot_PCA(pca_cdna_all_gabo, "PCA of Gabo and GaboSr50 genotypes cDNA data as transcriptome")
-```
-
-## D. Gabo
-
-```{r}
-abundance_files_gabo <- abundance_files[17:24]
-all(file.exists(abundance_files_gabo))
-```
-
-### 3. Tximport
-
-```{r echo=TRUE}
-txi.kallisto_cdna_gabo <- tximport(abundance_files_gabo, type="kallisto", tx2gene=t2g_cdna)
-create_dir("./output/cdna/Gabo")
-gabo_sampleTable <- data.frame(condition = factor(rep(c("Gabo_AvrSr50",
-                                                   "Gabo_EV"), each=4)))
-
-rownames(gabo_sampleTable) <- colnames(txi.kallisto_cdna_gabo$counts)
-gabo_sampleTable
-```
-
-### 4. DESeq2
-
-```{r message=FALSE}
-dds_cdna_gabo <- run_DESeq2(txi.kallisto_cdna_gabo, gabo_sampleTable)
-```
-
-### 5. PCA
-
-```{r echo=TRUE, fig.width=15, fig.height=6}
-vsd_cdna_gabo <- vst(dds_cdna_gabo, blind=FALSE)  #Variance Stabilizing Transformations
-head(assay(vsd_cdna_gabo), 10)[, c(1,2,3)] 
-
-write.table(assay(vsd_cdna_gabo), file="./output/cdna/Gabo/DESeq2_cdna_vst.txt", sep="\t")
-
-pca_cdna_gabo <- DESeq2::plotPCA(vsd_cdna_gabo, returnData=TRUE)
-percentVar <- round(100 * attr(pca_cdna_gabo, "percentVar"))
-
-plot_PCA(pca_cdna_gabo, "PCA of Gabo genotypes cDNA data as transcriptome")
-```
-
-## E. GaboSr50
-
-```{r}
-abundance_files_gabosr50 <- abundance_files[25:36]
-all(file.exists(abundance_files_gabosr50))
-```
-
-### 3. Tximport
-
-```{r echo=TRUE}
-txi.kallisto_cdna_gabosr50 <- tximport(abundance_files_gabosr50, type="kallisto", tx2gene=t2g_cdna)
-create_dir("./output/cdna/GaboSr50")
-gabosr50_sampleTable <- data.frame(condition = factor(rep(c("Gabo_Sr50_AvrSr35",
-                                                   "Gabo_Sr50_AvrSr50",
-                                                   "Gabo_Sr50_EV"), each=4)))
-
-rownames(gabosr50_sampleTable) <- colnames(txi.kallisto_cdna_gabosr50$counts)
-gabosr50_sampleTable
-```
-
-### 4. DESeq2
-
-```{r message=FALSE}
-dds_cdna_gabosr50 <- run_DESeq2(txi.kallisto_cdna_gabosr50, gabosr50_sampleTable)
-```
-
-### 5. PCA
-
-```{r echo=TRUE, fig.width=15, fig.height=6}
-vsd_cdna_gabosr50 <- vst(dds_cdna_gabosr50, blind=FALSE)  #Variance Stabilizing Transformations
-head(assay(vsd_cdna_gabosr50), 10)[, c(1,2,3)] 
-
-write.table(assay(vsd_cdna_gabosr50), file="./output/cdna/GaboSr50/DESeq2_cdna_vst.txt", sep="\t")
-
-pca_cdna_gabosr50 <- DESeq2::plotPCA(vsd_cdna_gabosr50, returnData=TRUE)
-percentVar <- round(100 * attr(pca_cdna_gabosr50, "percentVar"))
-
-plot_PCA(pca_cdna_gabosr50, "PCA of GaboSr50 genotypes cDNA data as transcriptome")
-```
+Same was done for each wheat genotype to check further (not shown).

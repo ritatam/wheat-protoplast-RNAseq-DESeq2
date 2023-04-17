@@ -15,10 +15,8 @@ library(tibble)
 ```
 
 ```{r}
-#setwd("D://Work//OneDrive - Australian National University//.SCHWESSINGER'S LAB WORK//RNAseq analysis (Salome)//3. Finding non-differentially expressed genes")
-
-setwd("C://Users//u6149379//OneDrive - Australian National University//.SCHWESSINGER'S LAB WORK//RNAseq analysis (Salome)//3. Finding non-differentially expressed genes")
-samp_rep_dirs <- list.files(path="../input/kallisto_quantification", full.names = TRUE)
+setwd("nonDE")
+samp_rep_dirs <- list.files(path="input/kallisto_quantification", full.names = TRUE)
 ```
 
 # A. Gabo and GaboSr50
@@ -33,7 +31,7 @@ for (path in samp_rep_dirs){
   abundance_files <- c(abundance_files, path)
 }
 
-samp_rep_names <- list.files(path="../input/kallisto_quantification/", full.names=FALSE)
+samp_rep_names <- list.files(path="input/kallisto_quantification/", full.names=FALSE)
 names(abundance_files) <- samp_rep_names
 
 all(file.exists(abundance_files)) # check all files exist
@@ -42,7 +40,7 @@ all(file.exists(abundance_files)) # check all files exist
 abundance_files_AllGabo <- abundance_files[17:36]
 
 # read in tx2gene file
-t2g <- read_delim("../input/transcriptome/Triticum_aestivum.cdna.tx2gene.txt", delim=" ", col_names=FALSE)
+t2g <- read_delim("input/transcriptome/Triticum_aestivum.cdna.tx2gene.txt", delim=" ", col_names=FALSE)
 
 # tximport
 txi_AllGabo <- tximport(abundance_files_AllGabo, type="kallisto", tx2gene=t2g)
@@ -58,7 +56,7 @@ rownames(samples_AllGabo) <- colnames(txi_AllGabo$counts)
 
 # construct DESeqDataSet
 dds_AllGabo <- DESeqDataSetFromTximport(txi_AllGabo, colData=samples_AllGabo, design=~condition)
-dds_AllGabo <- dds_AllGabo[rowSums(counts(dds_AllGabo)) > 1, ]   # Pre-filtering
+dds_AllGabo <- dds_AllGabo[rowSums(counts(dds_AllGabo)) > 1, ]
 dds_AllGabo    # output should have dim of 75899x20
 ```
 
@@ -70,9 +68,8 @@ dds_AllGabo <- DESeq(dds_AllGabo)
 
 ## Result tables
 
-Since we are interested in non-differentially expressed genes, this "unconventional" alternative hypothesis needs to be specified. The Wald test of significance provides p-values for the null hypothesis, which is the complement of the set defined by the alternative.
+Since we are interested in nonDE genes, this alternative hypothesis needs to be specified. The Wald test of significance provides p-values for the null hypothesis, which complements the set defined by the alternative.
 Here, the alternative hypothesis is |lfc| < lfcThreshold. In other words the test will look for genes with |log2FoldChange| < 0.5.
-Note that the test is not performed on the full null region, but substitutes with a test at the boundary; and returns the maximum p-value of upper and lower one-sided tests.
 
 ```{r}
 nonDE_results <- function(dds, query, ref) {
@@ -113,12 +110,12 @@ Subset dds normalised read count data using the gene pool. Here normalisation pe
 dds_AllGabo_nonDE_normCounts <- counts(dds_AllGabo[rownames(dds_AllGabo) %in% Gabo_nonDEGenePool, ], normalized=TRUE )
 head(dds_AllGabo_nonDE_normCounts)
 ```
+
 ## Non-DE genes ranked for each condition
 
 Take the mean of normalised read counts for each condition.
 
-First split dataframe based on conditions, then calculate mean normalised read counts, and rank genes from highest to lowest. 
-The following function does this job.
+First split dataframe based on conditions, then calculate mean normalised read counts, and rank genes from highest to lowest. Wrapped in function.
 
 ```{r}
 # setting up function
@@ -198,9 +195,10 @@ rownames(samples_Fielder) <- colnames(txi_Fielder$counts)
 
 # construct DESeqDataSet
 dds_Fielder <- DESeqDataSetFromTximport(txi_Fielder, colData=samples_Fielder, design=~condition)
-dds_Fielder <- dds_Fielder[rowSums(counts(dds_Fielder)) > 1, ]   # Pre-filtering
+dds_Fielder <- dds_Fielder[rowSums(counts(dds_Fielder)) > 1, ]
 dds_Fielder    # output should have dim of 75899x20
 ```
+
 ## Differential expression analysis
 ```{r}
 dds_Fielder <- DESeq(dds_Fielder)
@@ -268,7 +266,6 @@ meanNormCount_sum_Fielder <- df_list %>%
   arrange(desc(meanNormCount_sum))
 
 meanNormCount_sum_Fielder
-#write.csv(meanNormCount_sum_Fielder, file=paste("./meanNormCount_sum/meanNormCount_sum_Fielder.csv"))
 ```
 
 # C. Ranking common non-DE genes
@@ -312,13 +309,9 @@ nonDEGenes_rank
 
 ```{r}
 min_Q1<- nonDEGenes_rank[nonDEGenes_rank$quartile == 1, ]
-#write.csv(min_Q1, file=paste("./final_nonDE_gene_rank/high.csv"))
 Q1_M <- nonDEGenes_rank[nonDEGenes_rank$quartile == 2, ]
-#write.csv(Q1_M, file=paste("./final_nonDE_gene_rank/midhigh.csv"))
 M_Q3 <- nonDEGenes_rank[nonDEGenes_rank$quartile == 3, ]
-#write.csv(M_Q3, file=paste("./final_nonDE_gene_rank/midlow.csv"))
 Q3_max <- nonDEGenes_rank[nonDEGenes_rank$quartile == 4, ]
-#write.csv(Q3_max, file=paste("./final_nonDE_gene_rank/low.csv"))
 ```
 
 
