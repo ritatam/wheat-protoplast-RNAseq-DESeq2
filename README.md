@@ -1,17 +1,11 @@
 # wheat-protoplast-RNAseq-DESeq2
 R Markdown scripts for differential gene expression analysis on Triticum aestivum RNAseq using DESeq2 package
 
-**RNAseq_protoplast_DEanalysis.Rmd**
+**RNAseq_protoplast_DEanalysis.Rmd**: Differential expression analysis for wheat protoplast RNAseq to identify genes commonly upregulated under Avr/R conditions
 
-Differential expression analysis for wheat protoplast RNAseq to identify genes commonly upregulated under Avr/R conditions
+**RNAseq_protoplast_replicate_PCA.Rmd**: PCA of transcript abundance data to check concordance among biological replicates
 
-**RNAseq_protoplast_replicate_PCA.Rmd**
-
-PCA of transcript abundance data to check concordance among biological replicates
-
-**nonDEidentification.Rmd**
-
-Identification of non-differentially expressed genes
+**nonDEidentification.Rmd**: Identification of non-differentially expressed genes
 
 ### Citations
 [DESeq2](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html)
